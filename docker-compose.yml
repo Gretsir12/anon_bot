@@ -1,0 +1,4 @@
+services:
+  anon_bot:
+    build: .
+    restart: always

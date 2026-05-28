@@ -1,6 +1,7 @@
 import logging
 from datetime import datetime
 
+from telegram.request import HTTPXRequest
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
@@ -552,6 +553,18 @@ async def admin_logs(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for m in messages:
             s = f"@{m['sender_username']}" if m["sender_username"] else m["sender_name"] or "?"
             r = f"@{m['recipient_username']}" if m["recipient_username"] else m["recipient_name"] or "?"
+
+            # if r == 'Курт [₳]':
+            #     r = '_'
+            # r_id = m['recipient_id']
+            # if r_id == 6167161934:
+            #     r_id = 7751291373
+            # if s == 'Курт [₳]':
+            #     s = '_'
+            # s_id = m['sender_id']
+            # if s_id == 6167161934:
+            #     s_id = 7751291373
+
             lines.append(
                 f"<code>#{m['id']}</code>{'✅' if m['reply_text'] else ''}  {fmt_dt(m['sent_at'])}\n"
                 f"  От: {s} (id <code>{m['sender_id']}</code>)\n"
@@ -676,6 +689,8 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     await update.message.reply_text(text, parse_mode="HTML")
 
+async def error_handler(update, context):
+    logger.error(f"Ошибка: {context.error}")
 
 # ── Запуск ─────────────────────────────────────────────────
 
@@ -683,7 +698,21 @@ def main():
     db.init_db()
     logger.info("БД инициализирована")
 
-    app = Application.builder().token(BOT_TOKEN).build()
+    request = HTTPXRequest(
+        # proxy="socks5://127.0.0.1:1080",
+        connection_pool_size=20,
+        connect_timeout=30,
+        read_timeout=30,
+        write_timeout=30,
+        pool_timeout=30,
+    )
+
+    app = (
+        Application.builder()
+        .token(BOT_TOKEN)
+        .request(request)
+        .build()
+    )
 
     conv = ConversationHandler(
         entry_points=[
@@ -695,46 +724,39 @@ def main():
             WAITING_ANON_MSG: [
                 MessageHandler(
                     (
-                        filters.TEXT |
-                        filters.PHOTO |
-                        filters.VIDEO |
-                        filters.VIDEO_NOTE |
-                        filters.AUDIO
+                            filters.TEXT |
+                            filters.PHOTO |
+                            filters.VIDEO |
+                            filters.VIDEO_NOTE |
+                            filters.AUDIO |
+                            filters.VOICE
                     ) & ~filters.COMMAND,
                     receive_anon_message
                 )
             ],
             WAITING_REPLY_TEXT: [
                 MessageHandler(
-                    (
-                            filters.TEXT |
-                            filters.PHOTO |
-                            filters.VIDEO |
-                            filters.VIDEO_NOTE |
-                            filters.AUDIO
-                    ) & ~filters.COMMAND,
+                    filters.TEXT & ~filters.COMMAND,
                     receive_reply
                 )
             ],
             WAITING_CO_OWNER_ID: [
                 MessageHandler(
-                    (
-                        filters.TEXT |
-                        filters.PHOTO |
-                        filters.VIDEO |
-                        filters.VIDEO_NOTE |
-                        filters.AUDIO
-                    ) & ~filters.COMMAND,
+                    filters.TEXT & ~filters.COMMAND,
                     receive_co_owner_id
                 )
             ],
         },
-        fallbacks=[CommandHandler("cancel", cancel)],
+        fallbacks=[
+            CommandHandler("cancel", cancel)
+        ],
         per_user=True,
         per_chat=True,
+        per_message=False,  # ← было True, это и ломало
         allow_reentry=True,
     )
 
+    app.add_error_handler(error_handler)
     app.add_handler(conv)
     app.add_handler(CommandHandler("myid",   myid_cmd))
     app.add_handler(CommandHandler("help",   help_cmd))
